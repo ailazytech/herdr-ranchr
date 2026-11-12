@@ -51,6 +51,10 @@ ranchr 就是從那裡搬出來的。直接跑上面的安裝：
 
 每個 pane 標題列在名稱後面顯示它的終端機位址（例如 `t16`），agent 和一般 shell 都有；點一下複製，方便貼給別的 agent（`hc read t16`）。
 
+## 語言
+
+介面預設跟隨系統語言（中文使用繁體中文，其他使用英文）。在 Spaces 標題列的排序選單選擇「跟系統」、「中文」或「English」；也可以用 `language-auto`、`language-zh`、`language-en` 指令切換。設定與支援相同語言選項的 mod 共用，立即生效；既有名稱不會改變。
+
 ## 指令與快捷鍵
 
 `herdr-app do herdr-folders.<指令>`，或在 `keys.json` 綁 `herdr-folders.<指令>`：

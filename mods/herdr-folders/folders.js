@@ -2,6 +2,7 @@
 // dragging, and the popups and dialog the sidebar opens as overlays of itself.
 // The rules for where things may go live in tree.js.
 
+import { t as translate, language } from "./i18n.js";
 import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { run, spaces, agents, terminals, openOverlay, closeOverlay, theme, shared, setShared } from "herdr";
@@ -12,11 +13,12 @@ import {
   addressesBySpace,
 } from "./tree.js";
 
+const tr = (key, vars) => translate(key, vars, language(shared));
+
 const MOD = "herdr-folders";
 const STORE_KEY = "herdr-folders";
 const PENDING_KEY = "herdr-folders.pending";
 const SORT_KEY = "herdr-folders.sort";
-const NEW_FOLDER_NAME = "新資料夾";
 const PENDING_SPACE_MS = 60000;
 const FOLDER_ROW = 28;
 const INDENT = 14;
@@ -57,7 +59,7 @@ const MARK_ORDER = ["blocked", "done", "working"];
 
 // How far a row steps back while something else is marked 主控 or 副控.
 export const FADE = 0.72;
-const ROLE_NAME = { main: "主控", sub: "副控" };
+const roleName = (role) => tr(role === "main" ? "lead" : "second");
 const ROLE_RANK = { main: 0, sub: 1 };
 // Light enough to read as a name on the dark sidebar. None goes back to the theme's;
 // amber is left out: it's the color of an ordinary agent working.
@@ -68,9 +70,9 @@ const namesOf = (space) => [space.name, ...(space.tabs ?? []).map((tab) => tab.n
 
 // How the list is sorted. Only the drawing changes: the tree keeps its own order.
 const SORTS = [
-  { id: "manual", label: "原始", icon: "layers" },
-  { id: "date", label: "資料夾日期", icon: "clock" },
-  { id: "agents", label: "啟用 agent", icon: "terminal" },
+  { id: "manual", label: "manual", icon: "layers" },
+  { id: "date", label: "date", icon: "clock" },
+  { id: "agents", label: "agents", icon: "terminal" },
 ];
 const sortOf = () => SORTS.find((s) => s.id === shared(SORT_KEY)) ?? SORTS[0];
 
@@ -156,7 +158,7 @@ function fillOf(color, t) {
 // A new folder in `ref`, with its dialog open to name it.
 function newFolderIn(ref) {
   const id = `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-  saveTree(insertFolder(loadTree(), ref, id, NEW_FOLDER_NAME));
+  saveTree(insertFolder(loadTree(), ref, id, tr("newFolder")));
   openEditFolder(id);
 }
 
@@ -171,7 +173,7 @@ function openEditFolder(id) {
 }
 
 export function openSortMenu() {
-  openOverlay({ mod: MOD, kind: "popup", width: 190, height: 150, props: { sortMenu: true } });
+  openOverlay({ mod: MOD, kind: "popup", width: 220, height: 285, props: { sortMenu: true } });
 }
 
 // A right click on a space's row. Herdr's own menu can't take more items, so this
@@ -235,7 +237,7 @@ export class Folders {
       .border_1().border_color(t.border).font_family("JetBrains Mono").text_size(10.5)
       .text_color(copied ? t.done : t.dim)
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .tooltip("點一下複製位址")
+      .tooltip(tr("copyAddressHelp"))
       .on_click((_e, cx) => {
         cx.stop_propagation();
         cx.write_to_clipboard(address);
@@ -244,7 +246,7 @@ export class Folders {
         this.uncopy?.cancel();
         this.uncopy = cx.timer.after(1500, (cx) => { this.copied = null; cx.notify(); });
       })
-      .child(copied ? "已複製" : address);
+      .child(copied ? tr("copied") : address);
   }
 
   // The draw list for what exists now (see rowsOf). Keeps the settled tree for
@@ -273,7 +275,7 @@ export class Folders {
     return h_flex().id("space-sort").flex_none().h(22).px(6).gap(3).items_center().rounded(5).text_color(t.dim).cursor_pointer()
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click(() => openSortMenu())
-      .child(sortOf().label)
+      .child(tr(sortOf().label))
       .child(svg("mods/workspace-chrome/chevron-down.svg").size(10));
   }
 
@@ -381,7 +383,7 @@ export class Folders {
     const pinned = isPinned(this.tree, key);
     return div().id(`pin-${key}`).flex_none().p(2).rounded(4).text_color(t.dim).cursor_pointer()
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .tooltip(pinned ? "取消釘選" : "釘到最上面")
+      .tooltip(pinned ? tr("unpin") : tr("pin"))
       .on_click((_e, cx) => {
         cx.stop_propagation();
         this.togglePin(key);
@@ -408,7 +410,7 @@ export class Folders {
 
   // What the narrow sidebar's tooltip says.
   label(role, name) {
-    return role ? `${ROLE_NAME[role]} · ${name}` : name;
+    return role ? `${roleName(role)} · ${name}` : name;
   }
 
   // A space's avatar: the emoji someone chose, else the icon of the agent in it,
@@ -615,7 +617,7 @@ class SortMenu {
     const t = theme();
     const on = sortOf().id;
     return v_flex().id("sort-menu").w_full().p(5).bg(t.popover).text_color(t.foreground).text_size(12.8)
-      .child(div().px(8).pt(4).pb(6).text_size(11).text_color(t.dim).child("排序 Spaces"))
+      .child(div().px(8).pt(4).pb(6).text_size(11).text_color(t.dim).child(tr("sortTitle")))
       .children(SORTS.map((s) => h_flex().id(`sort-${s.id}`).h(31).px(8).gap(9).rounded(7).items_center().cursor_pointer()
         .hover((el) => el.bg(t.hover))
         .on_click(() => {
@@ -623,8 +625,16 @@ class SortMenu {
           closeOverlay(this.overlay);
         })
         .child(svg(iconPath(s.icon)).size(14).flex_none().text_color(t.muted))
-        .child(div().flex_1().child(s.label))
-        .when(s.id === on, (el) => el.child(svg(iconPath("check")).size(14).flex_none()))));
+        .child(div().flex_1().child(tr(s.label)))
+        .when(s.id === on, (el) => el.child(svg(iconPath("check")).size(14).flex_none()))))
+      .child(separator(t))
+      .child(div().px(8).pt(4).pb(6).text_size(11).text_color(t.dim).child(tr("language")))
+      .children([["auto", "auto"], ["zh-TW", "chinese"], ["en", "english"]].map(([value, label]) =>
+        h_flex().id(`language-${value}`).h(31).px(8).gap(9).rounded(7).items_center().cursor_pointer()
+          .hover((el) => el.bg(t.hover))
+          .on_click(() => { setShared("ui.language", value); closeOverlay(this.overlay); })
+          .child(div().flex_1().child(tr(label)))
+          .when((shared("ui.language") ?? "auto") === value, (el) => el.child(svg(iconPath("check")).size(14).flex_none()))));
   }
 }
 
@@ -665,21 +675,21 @@ class SpaceMenu {
       .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(name));
     return v_flex().id("space-menu").w_full().p(5).gap(1).bg(t.popover).text_color(t.foreground).text_size(12.5)
       .when(addresses.length > 0, (el) => el
-        .child(div().px(10).pt(3).h(22).text_size(11).text_color(t.dim).child("複製位址"))
+        .child(div().px(10).pt(3).h(22).text_size(11).text_color(t.dim).child(tr("copyAddress")))
         .children(addresses.map(copy))
         .child(separator(t)))
-      .child(choice("main", "主控"))
-      .child(choice("sub", "副控"))
-      .child(choice(null, "不標記"))
+      .child(choice("main", tr("lead")))
+      .child(choice("sub", tr("second")))
+      .child(choice(null, tr("noRole")))
       .when(Boolean(role), (el) => el.child(separator(t))
-        .child(div().px(10).pt(3).text_size(11).text_color(t.dim).child(`${ROLE_NAME[role]}的顏色（全部共用，× 是預設）`))
+        .child(div().px(10).pt(3).text_size(11).text_color(t.dim).child(tr("roleColor", { role: roleName(role) })))
         .child(swatches(t, "role", ROLE_COLORS, tree.roleColors?.[role] ?? NO_COLOR, paint)))
       .child(separator(t))
-      .child(item("space-emoji", "Emoji…", () => openEmoji(this.id)))
-      .child(item("space-rename", "重新命名", () => run("space.rename", { id: this.id })))
-      .child(item("space-herdr", "Herdr 選單…", () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: this.id } } })))
+      .child(item("space-emoji", tr("emojiMenu"), () => openEmoji(this.id)))
+      .child(item("space-rename", tr("rename"), () => run("space.rename", { id: this.id })))
+      .child(item("space-herdr", tr("herdrMenu"), () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: this.id } } })))
       .child(separator(t))
-      .child(item("space-close", "關閉", () => run("space.close", { id: this.id })));
+      .child(item("space-close", tr("close"), () => run("space.close", { id: this.id })));
   }
 }
 
@@ -703,13 +713,13 @@ class FolderMenu {
     };
     return popupFrame(t, "folder-menu")
       .when(isFolder, (el) => el.child(swatches(t, "folder", PRESETS, tree.folders[id]?.color ?? null, paint)))
-      .child(item("folder-new-here", "在這裡新增資料夾", () => newFolderIn(this.key)))
-      .child(item("folder-pin", isPinned(tree, this.key) ? "取消釘選" : "釘到最上面", () => {
+      .child(item("folder-new-here", tr("newFolderHere"), () => newFolderIn(this.key)))
+      .child(item("folder-pin", isPinned(tree, this.key) ? tr("unpin") : tr("pin"), () => {
         const now = loadTree();
         saveTree(isPinned(now, this.key) ? unpin(now, this.key) : pin(now, this.key));
       }))
-      .when(isFolder, (el) => el.child(item("folder-edit", "編輯資料夾…", () => openEditFolder(id))))
-      .when(isFolder, (el) => el.child(separator(t)).child(item("folder-delete", "刪除資料夾", () => saveTree(deleteFolder(loadTree(), id)))));
+      .when(isFolder, (el) => el.child(item("folder-edit", tr("editFolderMenu"), () => openEditFolder(id))))
+      .when(isFolder, (el) => el.child(separator(t)).child(item("folder-delete", tr("deleteFolder"), () => saveTree(deleteFolder(loadTree(), id)))));
   }
 }
 
@@ -744,7 +754,7 @@ class EmojiDialog extends Dialog {
     super();
     this.id = id;
     this.overlay = overlay;
-    this.emoji = InputState.new({ value: emojiOf(loadTree(), id) ?? "", placeholder: "Win + . 可以開表情符號面板" });
+    this.emoji = InputState.new({ value: emojiOf(loadTree(), id) ?? "", placeholder: tr("emojiPlaceholder") });
     this.emoji.on("submit", () => this.save(this.emoji.value()));
     this.emoji.focus();
   }
@@ -758,13 +768,13 @@ class EmojiDialog extends Dialog {
     const t = theme();
     const space = spaces().find((s) => s.id === this.id);
     return v_flex().id("space-emoji").w_full().p(20).gap(16).bg(t.popover).text_color(t.foreground)
-      .child(div().text_size(15).font_semibold().child(`${space?.name ?? "這個 space"} 的 Emoji`))
-      .child(this.field(t, "Emoji", Input.new(this.emoji).w_full().text_size(13).text_color(t.foreground)))
+      .child(div().text_size(15).font_semibold().child(tr("emojiTitle", { name: space?.name ?? tr("thisSpace") })))
+      .child(this.field(t, tr("emoji"), Input.new(this.emoji).w_full().text_size(13).text_color(t.foreground)))
       .child(emojiPicker(t, "space", cleanEmoji(this.emoji.value()), (emoji) => this.save(emoji)))
       .child(h_flex().pt(4).gap(8).justify_end()
-        .child(this.button(t, "emoji-clear", "預設", false, () => this.save("")))
-        .child(this.button(t, "emoji-cancel", "取消", false, () => closeOverlay(this.overlay)))
-        .child(this.button(t, "emoji-save", "儲存", true, () => this.save(this.emoji.value()))));
+        .child(this.button(t, "emoji-clear", tr("default"), false, () => this.save("")))
+        .child(this.button(t, "emoji-cancel", tr("cancel"), false, () => closeOverlay(this.overlay)))
+        .child(this.button(t, "emoji-save", tr("save"), true, () => this.save(this.emoji.value()))));
   }
 }
 
@@ -775,11 +785,11 @@ class EditFolderDialog extends Dialog {
     super();
     this.id = id;
     this.overlay = overlay;
-    const folder = loadTree().folders[id] ?? { name: NEW_FOLDER_NAME, icon: DEFAULT_ICON, color: null };
+    const folder = loadTree().folders[id] ?? { name: tr("newFolder"), icon: DEFAULT_ICON, color: null };
     this.icon = folder.icon ?? DEFAULT_ICON;
     this.color = folder.color ?? null;
     this.name = InputState.new({ value: folder.name });
-    this.emoji = InputState.new({ value: folder.emoji ?? "", placeholder: "留空就用圖示和顏色" });
+    this.emoji = InputState.new({ value: folder.emoji ?? "", placeholder: tr("folderEmojiPlaceholder") });
     this.hex = InputState.new({ value: isHex(this.color) ? this.color : "", placeholder: "#rrggbb" });
     this.name.on("submit", () => this.save());
     this.hex.on("change", (_e, cx) => {
@@ -812,19 +822,19 @@ class EditFolderDialog extends Dialog {
         closeOverlay(this.overlay);
         cx.stop_propagation();
       })
-      .child(div().text_size(15).font_semibold().child("編輯資料夾"))
-      .child(this.field(t, "名稱", Input.new(this.name).w_full().text_size(13).text_color(t.foreground)))
-      .child(this.field(t, "Emoji", Input.new(this.emoji).w_full().text_size(13).text_color(t.foreground)))
+      .child(div().text_size(15).font_semibold().child(tr("editFolder")))
+      .child(this.field(t, tr("name"), Input.new(this.name).w_full().text_size(13).text_color(t.foreground)))
+      .child(this.field(t, tr("emoji"), Input.new(this.emoji).w_full().text_size(13).text_color(t.foreground)))
       .child(emojiPicker(t, "folder", cleanEmoji(this.emoji.value()), (emoji, cx) => {
         this.emoji.set_value(emoji);
         cx.notify();
       }))
-      .child(this.labeled(t, "圖示", this.iconRow(t)))
-      .child(this.labeled(t, "顏色", swatches(t, "edit", PRESETS, this.color, (color, cx) => this.chooseColor(color, cx))))
+      .child(this.labeled(t, tr("icon"), this.iconRow(t)))
+      .child(this.labeled(t, tr("color"), swatches(t, "edit", PRESETS, this.color, (color, cx) => this.chooseColor(color, cx))))
       .child(this.hexRow(t))
       .child(h_flex().pt(4).gap(8).justify_end()
-        .child(this.button(t, "folder-cancel", "取消", false, () => closeOverlay(this.overlay)))
-        .child(this.button(t, "folder-save", "儲存", true, () => this.save())));
+        .child(this.button(t, "folder-cancel", tr("cancel"), false, () => closeOverlay(this.overlay)))
+        .child(this.button(t, "folder-save", tr("save"), true, () => this.save())));
   }
 
   iconRow(t) {

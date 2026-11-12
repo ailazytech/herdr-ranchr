@@ -6,9 +6,12 @@
 // pane-address (ranchr): after the name, the terminal's address (t16), for every
 // pane, agent or shell; a click copies it, for handing to another agent (`hc read t16`).
 
+import { t as translate, language, initLanguage } from "./i18n.js";
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { panes, props, run, theme, home, layout } from "herdr";
+import { panes, props, run, theme, home, layout, shared, setShared, exec } from "herdr";
+
+const tr = (key, vars) => translate(key, vars, language(shared));
 
 // Match the first visible tab frame, including the active child of a stack.
 function paneFrame(node) {
@@ -38,7 +41,11 @@ function folder(cwd) {
 }
 
 export default class Pane extends View {
-  init() { this.hovered = false; this.copied = false; }
+  init(_props, cx) {
+    this.hovered = false;
+    this.copied = false;
+    cx.spawn(async () => { await initLanguage(shared, setShared, exec); });
+  }
 
   // The terminal's address, small and monospace; a click copies it and says so for a moment.
   address(t, address) {
@@ -56,7 +63,7 @@ export default class Pane extends View {
       .text_size(11)
       .text_color(this.copied ? t.done : t.dim)
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .tooltip("點一下複製位址")
+      .tooltip(tr("copyAddressHelp"))
       .on_click((_e, cx) => {
         cx.stop_propagation();
         cx.write_to_clipboard(address);
@@ -65,7 +72,7 @@ export default class Pane extends View {
         this.uncopy?.cancel();
         this.uncopy = cx.timer.after(1500, (cx) => { this.copied = false; cx.notify(); });
       })
-      .child(this.copied ? "已複製" : address);
+      .child(this.copied ? tr("copied") : address);
   }
 
   me() {
@@ -113,7 +120,7 @@ export default class Pane extends View {
       .when(Boolean(p.terminal), el => el.child(this.address(t, p.terminal)))
       .child(div().flex_1().truncate().text_color(t.dim).child(folder(p.cwd)))
       .when(st === "working", el => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)))
-      .when(st === "blocked", el => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).child("Needs you")))
+      .when(st === "blocked", el => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).child(tr("needsYou"))))
       .when(st === "done", el => el.child(div().size(7).flex_none().rounded(4).bg(t.done)))
       .when(this.hovered, el => el
         .child(this.button(t, `ph-r-${pane}`, "split-right", "pane.split", { direction: "right", pane }))

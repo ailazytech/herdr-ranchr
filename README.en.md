@@ -51,6 +51,10 @@ ranchr was moved out of it. Just install as above:
 
 Every pane header shows its terminal's address after the name (`t16`), for agents and plain shells alike; a click copies it, handy for another agent (`hc read t16`).
 
+## Language
+
+The interface follows the system language by default (Traditional Chinese for Chinese locales, English otherwise). Use the sort menu in the Spaces header to choose System, 中文, or English, or use the `language-auto`, `language-zh`, and `language-en` commands. The setting is shared with compatible mods and takes effect immediately; existing names stay unchanged.
+
 ## Commands and keys
 
 `herdr-app do herdr-folders.<command>`, or `herdr-folders.<command>` in `keys.json`:
