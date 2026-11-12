@@ -11,8 +11,8 @@ herdr is the herder, [tendr](https://github.com/ailazytech/tendr) tends the fire
 You need the herdr app (installed and opened once), Node.js 18 or later on the PATH, and git.
 
 ```bash
-git clone https://github.com/ailazytech/ranchr
-node ranchr/install.mjs --switch
+git clone https://github.com/ailazytech/herdr-ranchr
+node herdr-ranchr/install.mjs --switch
 ```
 
 - Installs into `~/.config/herdr-app`: `layouts/ranchr.json`, `mods/herdr-folders/`, `mods/pane-address/`
@@ -41,7 +41,7 @@ ranchr was moved out of it. Just install as above:
 - **Icons:** a space shows its agent's icon, a folder a plain folder; either can be an emoji instead
 - **Pinning:** click the pin on a hovered row, or drag a row into Pinned
 - **Running and to look at (執行與待觀看):** under Pinned, every space with an agent working, waiting on you, or done and not looked at yet, folded folders included, with the folders it sits in as small dim text before its name. A click goes straight to a done agent if there is one. Pinned and this list stay put; only the folder tree scrolls
-- **Addresses:** with the pointer on a space's row, its first agent's address (`t16`) follows the name, a click copies it; the right-click menu lists every agent's address at the top
+- **Addresses:** with the pointer on a space's row, its first agent's address (`t16`) follows the name, shown only (a click there is a click on the row); to copy, use the right-click menu, which lists every agent's address at the top
 - **Status:** one mark per agent on the right, as in the Agents list
 - **Sorting:** a menu on the Spaces header: as arranged, by folder date, or by busy agents. Only the drawing changes; back to "as arranged" restores it
 - **Lead and second (主控, 副控):** a space whose name or tab contains 主控 or 副控 is marked, or mark it from its right-click menu. Marked spaces get an outlined icon and a colored name while the rest step back a little, and a lead has its own spinner

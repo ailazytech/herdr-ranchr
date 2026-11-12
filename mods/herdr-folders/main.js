@@ -17,7 +17,7 @@
 // the narrow sidebar shows each space's letter or emoji instead of numbers, a space
 // marked 主控 or 副控 (by its name or a tab's, or from its menu) gets an outlined icon
 // and a colored name while the rest step back, a 主控 has its own spinner, a space's
-// name is followed, while the pointer is on its row, by its first agent's address (a click copies it), and a
+// name is followed, while the pointer is on its row, by its first agent's address (shown only; the menu copies it), and a
 // space's right click opens this mod's menu, which lists every agent's address to copy;
 // machine workspace tabs filter the sidebar, remember each machine's last space, and
 // follow the shown space to its machine; the interface supports Chinese and English.

@@ -223,30 +223,18 @@ export class Folders {
     this.dragged = null; // the key under the pointer since the press
     this.drop = null; // { ref, index, over, side } where a release would put it
     this.addresses = {}; // space id -> its agents' { address, name }, the row's first
-    this.copied = null; // the row whose address was just copied: it says 已複製 for a moment
   }
 
   // After a space's name, while the pointer is on its row (`key`): its first agent's
-  // address (t16), small and monospace, to hand to another agent (`hc read t16`). A
-  // click copies it and says so for a moment. Every pane's header shows its own.
+  // address (t16), small and monospace. Shown only: a click on it is a click on the
+  // row (switching spaces kept copying it instead). The right-click menu copies.
   addressChip(id, t, key = `space:${id}`) {
     const address = this.addresses[id]?.[0]?.address;
-    const copied = Boolean(address) && this.copied === key;
-    if (!address || (this.hovered !== key && !copied)) return null;
-    return div().id(`space-address-${id}`).flex_none().h(17).px(4).flex().items_center().rounded(4)
+    if (!address || this.hovered !== key) return null;
+    return div().flex_none().h(17).px(4).flex().items_center().rounded(4)
       .border_1().border_color(t.border).font_family("JetBrains Mono").text_size(10.5)
-      .text_color(copied ? t.done : t.dim)
-      .hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .tooltip(tr("copyAddressHelp"))
-      .on_click((_e, cx) => {
-        cx.stop_propagation();
-        cx.write_to_clipboard(address);
-        this.copied = key;
-        cx.notify();
-        this.uncopy?.cancel();
-        this.uncopy = cx.timer.after(1500, (cx) => { this.copied = null; cx.notify(); });
-      })
-      .child(copied ? tr("copied") : address);
+      .text_color(t.dim)
+      .child(address);
   }
 
   // The draw list for what exists now (see rowsOf). Keeps the settled tree for
