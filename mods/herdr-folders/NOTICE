@@ -20,7 +20,7 @@ Files added, original to herdr-folders (MIT):
   test/tree.test.js
   package.json
 
-Changed for herdr-quota (https://github.com/ailazytech/herdr-quota):
+Changed for ranchr (first part of https://github.com/ailazytech/herdr-quota):
   mods/herdr-folders/main.js, folders.js, tree.js, test/tree.test.js
                                Folders can hold spaces from several machines;
                                emoji, pinning, sorting, per-agent marks, 主控

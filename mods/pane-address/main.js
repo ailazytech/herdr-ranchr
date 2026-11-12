@@ -3,7 +3,7 @@
 // Shows the program's icon (the app's program table), the agent's name or
 // the terminal's title, the folder, and the agent's status; buttons split, zoom and close
 // this pane. Props from the app: { pane, terminal }. Click: focus the pane.
-// pane-address (herdr-quota): after the name, the terminal's address (t16), for every
+// pane-address (ranchr): after the name, the terminal's address (t16), for every
 // pane, agent or shell; a click copies it, for handing to another agent (`hc read t16`).
 
 import { View, div, svg, image } from "gpui-kit";

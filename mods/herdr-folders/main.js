@@ -6,7 +6,7 @@
 //   - a New folder button on the header;
 //   - a machine's fold state is kept in the folder tree, not localStorage;
 //   - dragging a row moves it in the tree, not in Herdr's space order.
-// Changed from herdr-folders for herdr-quota: a folder outside every machine can
+// Changed from herdr-folders for ranchr (first part of herdr-quota): a folder outside every machine can
 // hold spaces from any machine (their rows name the machine), a folded folder
 // shows its count and what's waiting in it, folders and spaces can show an emoji
 // (the space's right-click menu, or the "emoji" command; a space shows its agent's

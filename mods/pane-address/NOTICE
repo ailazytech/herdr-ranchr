@@ -1,5 +1,5 @@
 pane-address
-Part of herdr-quota (https://github.com/ailazytech/herdr-quota).
+Part of ranchr (first part of https://github.com/ailazytech/herdr-quota).
 
 This product includes code from Herdr (https://github.com/herdrdev/herdr-app),
 the "pane" mod, version 0.1.15 (defaults/mods/pane), with its icons, licensed
