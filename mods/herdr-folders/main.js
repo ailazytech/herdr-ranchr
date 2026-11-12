@@ -554,6 +554,8 @@ export default class Spaces extends View {
         .when(path.length > 0, (el) => el.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(path.join(" › "))))
         .child(named(div().min_w(0).truncate().text_color(t.foreground), this.folders.roles[w.id], t).child(w.name)))
       .when(Boolean(address), (el) => el.child(address))
+      // The same pin as the tree's rows: pins (or unpins) the space itself.
+      .when(this.folders.hovered === `busy:${w.id}`, (el) => el.child(this.folders.pinButton(`space:${w.id}`, t)))
       .when(Boolean(marks), (el) => el.child(marks));
   }
 

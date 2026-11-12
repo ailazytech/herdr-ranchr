@@ -40,7 +40,7 @@ ranchr was moved out of it. Just install as above:
 - **Machine tabs:** under the Spaces header, tabs for all, this computer and each machine. One shows only that machine and goes to the space you last had there; each tab shows its machine's most urgent mark. Going to another machine's space (from the Agents list, say) moves the tab with you
 - **Icons:** a space shows its agent's icon, a folder a plain folder; either can be an emoji instead
 - **Pinning:** click the pin on a hovered row, or drag a row into Pinned
-- **Running and to look at (執行與待觀看):** under Pinned, every space with an agent working, waiting on you, or done and not looked at yet, folded folders included, with the folders it sits in as small dim text before its name. A click goes straight to a done agent if there is one. Pinned and this list stay put; only the folder tree scrolls
+- **Running and to look at (執行與待觀看):** under Pinned, every space with an agent working, waiting on you, or done and not looked at yet, folded folders included, with the folders it sits in as small dim text before its name. A click goes straight to a done agent if there is one; a hovered row has the same pin as the tree. Pinned and this list stay put; only the folder tree scrolls
 - **Addresses:** with the pointer on a space's row, its first agent's address (`t16`) follows the name, shown only (a click there is a click on the row); to copy, use the right-click menu, which lists every agent's address at the top
 - **Status:** one mark per agent on the right, as in the Agents list
 - **Sorting:** a menu on the Spaces header: as arranged, by folder date, or by busy agents. Only the drawing changes; back to "as arranged" restores it
