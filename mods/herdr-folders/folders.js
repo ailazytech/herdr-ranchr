@@ -295,7 +295,7 @@ export class Folders {
     this.addresses = allAddresses();
     this.programs = {};
     for (const a of allAgents) if (a.program?.icon) this.programs[a.space] ??= a.program;
-    return rowsOf(this.tree, known, this.order(), { hideEmptyFolders: filtered });
+    return rowsOf(this.tree, known, this.order(), { hideEmptyFolders: filtered, open: new Set(sp.map((s) => s.id)) });
   }
 
   // The order for the chosen sort; none keeps the tree's.

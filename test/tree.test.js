@@ -500,3 +500,32 @@ test("followWorkspace: the tab follows a change of the shown space, never on its
   assert.equal(followWorkspace(null, "a", remote), null); // all machines shown: stays
   assert.equal(followWorkspace("dev", "dev/c", remote), "dev"); // same machine
 });
+
+test("a filtered tab keeps folders on no machine yet, such as a new one, and hides folders whose spaces are all elsewhere", async () => {
+  const { insertFolder } = await import("../mods/herdr-folders/tree.js");
+  const all = known([local("l1"), remote("dev", "r1")], ["dev"]);
+  let tree = settle(sample(), all);
+  tree = insertFolder(tree, "root", "n", "new");
+  tree = insertFolder(tree, "root", "d", "dev only");
+  tree = move(tree, "space:dev/r1", "folder:d", 0);
+  const open = new Set(all.spaces.map((s) => s.id));
+  for (const target of ["", "dev"]) {
+    const keys = keysOf(rowsOf(tree, workspaceKnown(all, target), undefined, { hideEmptyFolders: true, open }));
+    assert.ok(keys.includes("folder:n"), `new folder on tab "${target}"`);
+    assert.equal(keys.includes("folder:d"), target === "dev");
+  }
+  // A folder that only holds closed spaces counts as empty.
+  const gone = new Set([...open].filter((id) => id !== "dev/r1"));
+  assert.ok(keysOf(rowsOf(tree, workspaceKnown(all, ""), undefined, { hideEmptyFolders: true, open: gone })).includes("folder:d"));
+});
+
+test("spaceAfterClose: the space next to the closed one on the same tab", async () => {
+  const { spaceAfterClose } = await import("../mods/herdr-folders/tree.js");
+  const sp = [local("a"), local("c"), remote("dev", "x"), local("d")];
+  const order = ["a", "b", "c", "d"];
+  assert.equal(spaceAfterClose(order, "b", sp, ""), "c"); // the one below
+  assert.equal(spaceAfterClose(["a", "c", "d", "e"], "e", sp, ""), "d"); // last: the one above
+  assert.equal(spaceAfterClose(["b"], "b", sp, ""), "a"); // not in the order: the tab's first
+  assert.equal(spaceAfterClose(order, "b", sp, "dev"), "dev/x");
+  assert.equal(spaceAfterClose(order, "b", [remote("dev", "x")], ""), null); // nothing left here
+});

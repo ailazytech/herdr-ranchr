@@ -339,6 +339,19 @@ export function followWorkspace(current, before, active) {
   return active.machine ?? "";
 }
 
+// The shown space closed: the one to show instead on the same tab. The next one below
+// it in the sidebar (`order`, as it was before the close), else the one above, else the
+// tab's first; null when the tab has none left.
+export function spaceAfterClose(order, closed, spaces, workspace) {
+  const here = new Set(spaces.filter((space) => (space.machine ?? "") === workspace).map((space) => space.id));
+  const at = order.indexOf(closed);
+  if (at >= 0) {
+    for (let i = at + 1; i < order.length; i++) if (here.has(order[i])) return order[i];
+    for (let i = at - 1; i >= 0; i--) if (here.has(order[i])) return order[i];
+  }
+  return spaces.find((space) => here.has(space.id))?.id ?? null;
+}
+
 export function workspaceSpace(spaces, workspace, last) {
   const candidates = spaces.filter((space) => (space.machine ?? "") === workspace);
   return candidates.find((space) => space.id === last)?.id ?? candidates[0]?.id ?? null;
@@ -348,7 +361,16 @@ export function workspaceSpace(spaces, workspace, last) {
 // with its depth and its parent ref. A folded
 // node's children are left out. Keys for what no longer exists are skipped
 // and stay in the store (a machine can come back).
-export function rowsOf(tree, known, order = (keys) => keys, { hideEmptyFolders = false } = {}) {
+// A filtered tab hides a folder whose spaces are all on other machines. Given `open`
+// (the ids of every space that exists), a folder holding none of them, such as a new
+// one, is on no machine yet and every tab shows it.
+function hiddenFolder(tree, key, present, open) {
+  const held = spacesUnder(tree, key);
+  if (held.some((id) => present.has(`space:${id}`))) return false;
+  return open ? held.some((id) => open.has(id)) : true;
+}
+
+export function rowsOf(tree, known, order = (keys) => keys, { hideEmptyFolders = false, open = null } = {}) {
   const full = settle(tree, known);
   const present = new Set([
     ...known.spaces.map((space) => `space:${space.id}`),
@@ -362,7 +384,7 @@ export function rowsOf(tree, known, order = (keys) => keys, { hideEmptyFolders =
     // The pinned list keeps the order it was given: that's what pinning is for.
     for (const key of ref === PINNED ? keys : order(keys)) {
       if (!exists(key)) continue;
-      if (hideEmptyFolders && kindOf(key) === "folder" && !spacesUnder(full, key).some((id) => present.has(`space:${id}`))) continue;
+      if (hideEmptyFolders && kindOf(key) === "folder" && hiddenFolder(full, key, present, open)) continue;
       const node = { key, kind: kindOf(key), depth, parent: ref };
       out.push(node);
       if (!isContainer(key) || visited.has(key)) continue;

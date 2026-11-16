@@ -35,7 +35,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { spaces, agents, terminals, machines, panes, run, exec, hc, theme, shared, setShared, watchFolder, window, layout, props, nextCommand } from "herdr";
 import { Folders, overlayFor, openEmoji, openSortMenu, openSpaceMenu, openMachineColorMenu, markSpace, setSort, FADE, named, mark, MACHINE_COLORS_KEY } from "./folders.js";
 import {
-  nameOf, PINNED, workspaceKnown, workspaceTarget, workspaceSpace, followWorkspace,
+  nameOf, PINNED, workspaceKnown, workspaceTarget, workspaceSpace, followWorkspace, spaceAfterClose,
   MACHINE_PALETTE, MARK_COLORS, resolveMarkColor, machineOfAddress, assignMachineColors,
 } from "./tree.js";
 
@@ -166,10 +166,28 @@ export default class Spaces extends View {
   rememberSpace(sp) {
     const active = sp.find((s) => s.active);
     if (!active) return false;
+    const current = workspace();
+    // Waiting for the space picked below to show: what Herdr shows meanwhile doesn't move the tab.
+    if (this.holding) {
+      if (active.id !== this.holding.id && Date.now() < this.holding.until) return false;
+      this.holding = null;
+    }
+    // The shown space closed and Herdr showed one on another machine: stay on this tab
+    // and show the space next to the closed one instead.
+    const closed = this.lastActive !== undefined && this.lastActive !== active.id && !sp.some((s) => s.id === this.lastActive);
+    if (closed && current !== null && (active.machine ?? "") !== current) {
+      const id = spaceAfterClose(this.closeOrder ?? [], this.lastActive, sp, current);
+      if (id) {
+        this.lastActive = id;
+        this.holding = { id, until: Date.now() + 2000 };
+        run("space.select", { id });
+        return false;
+      }
+    }
+    this.closeOrder = this.spaceOrder;
     const key = active.machine ?? "";
     const last = shared(LAST_SPACE_KEY) ?? {};
     if (last[key] !== active.id) setShared(LAST_SPACE_KEY, { ...last, [key]: active.id });
-    const current = workspace();
     const next = followWorkspace(current, this.lastActive, active);
     this.lastActive = active.id;
     if (next === current) return false;
@@ -463,6 +481,8 @@ export default class Spaces extends View {
     const selected = workspace();
     this.folders.workspace = selected;
     const nodes = this.folders.nodes(workspaceKnown({ spaces: tops, machines: remote }, selected), selected !== null, ps);
+    // The spaces in the order shown, for picking the one next to a space that closes.
+    this.spaceOrder = nodes.filter((node) => node.kind === "space").map((node) => nameOf(node.key));
     if (!nodes.length) return { top: [], rest: (selected === null || selected === "") && loading(null) ? [loadingRow(null)] : [] };
     // A machine's header and, unless it's folded, a row to start a space when it has nothing.
     const machineBlock = (node) => {
