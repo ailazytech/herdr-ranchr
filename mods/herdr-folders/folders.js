@@ -5,12 +5,12 @@
 import { t as translate, language } from "./i18n.js";
 import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { run, spaces, agents, terminals, openOverlay, closeOverlay, theme, shared, setShared } from "herdr";
+import { run, spaces, agents, terminals, panes, openOverlay, closeOverlay, theme, shared, setShared } from "herdr";
 import {
   ROOT, DEFAULT_ICON, emptyTree, kindOf, nameOf, machineAt, isFolded, canMove, move, slotNear,
   insertFolder, deleteFolder, updateFolder, setFolded, settle, rowsOf, isHex, spacesUnder,
   cleanEmoji, emojiOf, setEmoji, PINNED, isPinned, pin, unpin, ranked, agentRole, agentScore, spaceRole, setRole, setRoleColor, pathOf,
-  addressesBySpace,
+  addressesBySpace, MACHINE_PALETTE, resolveMarkColor, assignMachineColors, setMachineColor, spaceAgentsBySpace, capMarks, machineOfAddress,
 } from "./tree.js";
 
 const tr = (key, vars) => translate(key, vars, language(shared));
@@ -19,6 +19,7 @@ const MOD = "herdr-folders";
 const STORE_KEY = "herdr-folders";
 const PENDING_KEY = "herdr-folders.pending";
 const SORT_KEY = "herdr-folders.sort";
+export const MACHINE_COLORS_KEY = "ranchr.machine-colors";
 const PENDING_SPACE_MS = 60000;
 const FOLDER_ROW = 28;
 const INDENT = 14;
@@ -100,7 +101,8 @@ function hiddenIn(tree, key, visible) {
 }
 
 // Each space's agents the way the Agents list counts them, sub-agents without a
-// pane included: { space id: [{ status, role }, ...] }. A sub-agent is never a controller.
+// pane included: { space id: [{ status, role, machine }, ...] }. A sub-agent is never a controller.
+// `machine` is where the agent runs ("" for this computer), for its machine's color.
 function runningBySpace(roles) {
   const all = terminals();
   const tabs = Object.fromEntries(spaces().map((s) => [s.id, (s.tabs ?? []).map((tab) => tab.name)]));
@@ -108,28 +110,29 @@ function runningBySpace(roles) {
   const listed = new Set(list.map((a) => a.address));
   const children = new Set(all.filter((k) => k.parent).map((k) => k.address));
   const out = {};
-  const add = (space, status, role = null) => (out[space] ??= []).push({ status, role });
+  const add = (space, status, role, address) => (out[space] ??= []).push({ status, role, machine: machineOfAddress(address) });
   const kids = (address, space, seen) => {
     if (seen.has(address)) return;
     seen.add(address);
     for (const k of all) {
       if (k.parent !== address || k.state !== "live") continue;
-      if (!listed.has(k.address) && k.status) add(space, k.status === "error" ? "blocked" : k.status === "done" ? "idle" : k.status);
+      if (!listed.has(k.address) && k.status) add(space, k.status === "error" ? "blocked" : k.status === "done" ? "idle" : k.status, null, k.address);
       kids(k.address, space, seen);
     }
   };
   for (const a of list) {
-    add(a.space, a.status, children.has(a.address) ? null : agentRole(a, roles[a.space], tabs[a.space] ?? []));
+    add(a.space, a.status, children.has(a.address) ? null : agentRole(a, roles[a.space], tabs[a.space] ?? []), a.address);
     kids(a.address, a.space, new Set());
   }
   return out;
 }
 
 // A 主控 spins its own shape in its color, a 副控 the usual shape in its color, and
-// everyone else as in the Agents list: a glance says who's running.
-function spinner(role, size, t) {
+// everyone else as in the Agents list: a glance says who's running. A machine's
+// color, when it has one, goes over all of them.
+function spinner(role, size, t, color = null) {
   const icon = role === "main" ? `mods/${MOD}/lead-spinner.svg` : "mods/workspace-chrome/spinner.svg";
-  return svg(icon).size(role === "main" ? size + 1 : size).flex_none().text_color(role ? roleColor(role, t) : t.working).spin(900);
+  return svg(icon).size(role === "main" ? size + 1 : size).flex_none().text_color(color ?? (role ? roleColor(role, t) : t.working)).spin(900);
 }
 
 // A thin outline on a 主控's or 副控's icon; the row itself stays as it was.
@@ -142,11 +145,44 @@ export function named(el, role, t) {
   return el.when(Boolean(role), (e) => e.text_color(roleColor(role, t))).when(role === "main", (e) => e.font_semibold());
 }
 
-// The Agents list's own marks: a spinner, a "!", a dot.
-export function mark({ status, role }, t) {
-  if (status === "working") return spinner(role, 12, t);
+// The Agents list's own marks: a spinner, a "!", a dot. Spinners and dots take
+// their machine's color (`colors`: ranchr.machine-colors); "!" keeps its alert color.
+export function mark({ status, role, machine }, t, colors = null) {
+  const color = resolveMarkColor(colors?.[machine ?? ""], t);
+  if (status === "working") return spinner(role, 12, t, color);
   if (status === "blocked") return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
-  return div().size(7).mx(2).flex_none().rounded(4).bg(t.done);
+  return div().size(7).mx(2).flex_none().rounded(4).bg(color ?? t.done);
+}
+
+// A mark for 執行與待觀看: colored by its machine (except "!" which stays alert-colored),
+// with idle drawn as a ring like the Agents list, and a "machine · agent" tooltip.
+function busyMark(spaceId, item, t, machineColors) {
+  const machineLabel = item.machine || tr("computer");
+  const tip = `${machineLabel} \u00b7 ${item.name}`;
+  const id = `busy-mark-${spaceId}-${item.address}`;
+  const color = resolveMarkColor(machineColors?.[item.machine], t);
+  if (item.status === "blocked") {
+    return div().id(id).size(14).flex_none().rounded(4).bg(t.blocked + "26")
+      .text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center()
+      .tooltip(tip)
+      .child("!");
+  }
+  if (item.status === "working") {
+    const icon = item.role === "main" ? `mods/${MOD}/lead-spinner.svg` : "mods/workspace-chrome/spinner.svg";
+    const size = item.role === "main" ? 13 : 12;
+    const fill = color ?? (item.role ? roleColor(item.role, t) : t.working);
+    return div().id(id).flex_none().h(16).flex().items_center().justify_center()
+      .tooltip(tip)
+      .child(svg(icon).size(size).flex_none().text_color(fill).spin(900));
+  }
+  if (item.status === "idle") {
+    return div().id(id).flex_none().h(16).px(2).flex().items_center().justify_center()
+      .tooltip(tip)
+      .child(div().size(7).rounded(4).border(1.5).border_color(color ?? t.idle ?? t.dim));
+  }
+  return div().id(id).flex_none().h(16).px(2).flex().items_center().justify_center()
+    .tooltip(tip)
+    .child(div().size(7).rounded(4).bg(color ?? t.done));
 }
 
 function fillOf(color, t) {
@@ -198,12 +234,17 @@ export function openEmoji(id) {
   openOverlay({ mod: MOD, kind: "dialog", width: 460, props: { emoji: id } });
 }
 
+export function openMachineColorMenu(machine) {
+  openOverlay({ mod: MOD, kind: "popup", width: 210, height: 114, props: { machineColorMenu: machine } });
+}
+
 // The view for a copy of the sidebar opened as an overlay, or null for the sidebar itself.
 export function overlayFor(props) {
   const p = props ?? {};
   if (p.sortMenu) return new SortMenu(p.overlay);
   if (p.spaceMenu) return new SpaceMenu(p.spaceMenu, p.overlay);
   if (p.folderMenu) return new FolderMenu(p.folderMenu, p.overlay);
+  if (p.machineColorMenu !== undefined) return new MachineColorMenu(p.machineColorMenu, p.overlay);
   if (p.edit) return new EditFolderDialog(p.edit, p.overlay);
   if (p.emoji) return new EmojiDialog(p.emoji, p.overlay);
   return null;
@@ -216,6 +257,8 @@ export class Folders {
     this.tree = emptyTree();
     this.known = { spaces: [], machines: [] };
     this.running = {}; // space id -> its agents' { status, role }
+    this.spaceAgents = {}; // space id -> all agents/sub-agents for 執行與待觀看
+    this.machineColors = {}; // ranchr.machine-colors, set by the sidebar each render
     this.dates = {}; // space id -> when its folder last changed (ms)
     this.programs = {}; // space id -> the program whose icon it shows
     this.roles = {}; // space id -> "main", "sub" or null
@@ -239,15 +282,19 @@ export class Folders {
 
   // The draw list for what exists now (see rowsOf). Keeps the settled tree for
   // the folder rows and for aiming a drag.
-  nodes(known, filtered = false) {
+  nodes(known, filtered = false, ps = panes()) {
     this.known = known;
-    this.visible = filtered ? new Set(spaces().filter((s) => (s.machine ?? "") === this.workspace).map((s) => s.id)) : null;
+    const sp = spaces();
+    const allAgents = agents();
+    const allTerminals = terminals();
+    this.visible = filtered ? new Set(sp.filter((s) => (s.machine ?? "") === this.workspace).map((s) => s.id)) : null;
     this.tree = settle(loadTree(), known);
-    this.roles = Object.fromEntries(spaces().map((s) => [s.id, spaceRole(this.tree, s.id, namesOf(s))]));
+    this.roles = Object.fromEntries(sp.map((s) => [s.id, spaceRole(this.tree, s.id, namesOf(s))]));
     this.running = runningBySpace(this.roles);
+    this.spaceAgents = spaceAgentsBySpace({ spaces: sp, agents: allAgents, terminals: allTerminals, panes: ps, roles: this.roles });
     this.addresses = allAddresses();
     this.programs = {};
-    for (const a of agents()) if (a.program?.icon) this.programs[a.space] ??= a.program;
+    for (const a of allAgents) if (a.program?.icon) this.programs[a.space] ??= a.program;
     return rowsOf(this.tree, known, this.order(), { hideEmptyFolders: filtered });
   }
 
@@ -330,7 +377,16 @@ export class Folders {
     if (!list.length) return null;
     const more = list.length - MAX_MARKS;
     return h_flex().flex_none().gap(3).items_center()
-      .children(list.slice(0, MAX_MARKS).map((a) => mark(a, t)))
+      .children(list.slice(0, MAX_MARKS).map((a) => mark(a, t, this.machineColors)))
+      .when(more > 0, (el) => el.child(div().text_size(10.5).text_color(t.dim).child(`+${more}`)));
+  }
+
+  // Marks for a row of 執行與待觀看: every agent/sub-agent across all machines.
+  busyMarks(id, t, machineColors) {
+    const { shown, more } = capMarks(this.spaceAgents[id], MAX_MARKS);
+    if (!shown.length) return null;
+    return h_flex().flex_none().gap(3).items_center()
+      .children(shown.map((item) => busyMark(id, item, t, machineColors)))
       .when(more > 0, (el) => el.child(div().text_size(10.5).text_color(t.dim).child(`+${more}`)));
   }
 
@@ -339,7 +395,8 @@ export class Folders {
   corner(ids, t) {
     const top = this.urgent(ids)[0];
     if (!top) return null;
-    const sign = top.status === "working" ? spinner(top.role, 10, t) : div().size(7).rounded(4).bg(t[top.status]);
+    const color = top.status === "blocked" ? null : resolveMarkColor(this.machineColors?.[top.machine ?? ""], t);
+    const sign = top.status === "working" ? spinner(top.role, 10, t, color) : div().size(7).rounded(4).bg(color ?? t[top.status]);
     return h_flex().absolute().right(0).bottom(1).size(12).rounded(6).bg(t.chrome).items_center().justify_center().child(sign);
   }
 
@@ -565,10 +622,10 @@ function separator(t) {
 }
 
 // Color dots in rows; `current` has a ring and `pick(color, cx)` runs on a click.
-function swatches(t, key, colors, current, pick) {
+function swatches(t, key, colors, current, pick, resolve = fillOf) {
   const swatch = (color) => div().id(`${key}-color-${color ?? "default"}`).size(20).flex_none().rounded(10).cursor_pointer()
     .flex().items_center().justify_center().text_size(12).text_color(t.popover).child(color === NO_COLOR ? "×" : "")
-    .bg(fillOf(color, t)).border_2().border_color(color === current ? t.foreground : t.popover)
+    .bg(resolve(color, t)).border_2().border_color(color === current ? t.foreground : t.popover)
     .hover((s) => s.border_color(t.muted))
     .on_click((_e, cx) => pick(color, cx));
   const lines = [];
@@ -708,6 +765,35 @@ class FolderMenu {
       }))
       .when(isFolder, (el) => el.child(item("folder-edit", tr("editFolderMenu"), () => openEditFolder(id))))
       .when(isFolder, (el) => el.child(separator(t)).child(item("folder-delete", tr("deleteFolder"), () => saveTree(deleteFolder(loadTree(), id)))));
+  }
+}
+
+// ---- overlay: a machine tab's color ----
+
+class MachineColorMenu {
+  constructor(machine, overlay) {
+    this.machine = machine;
+    this.overlay = overlay;
+  }
+
+  render() {
+    const t = theme();
+    const colors = assignMachineColors(shared(MACHINE_COLORS_KEY), this.machine ? [this.machine] : []).colors;
+    const current = colors[this.machine] ?? null;
+    const label = this.machine || tr("computer");
+    const save = (color) => setShared(MACHINE_COLORS_KEY, setMachineColor(colors, this.machine, color));
+    return popupFrame(t, "machine-color-menu")
+      .child(div().px(10).pt(3).pb(2).truncate().text_size(11).text_color(t.dim).child(tr("machineColorTitle", { name: label })))
+      .child(swatches(t, "machine", MACHINE_PALETTE, current, (color) => {
+        save(color);
+        closeOverlay(this.overlay);
+      }, (color, t) => resolveMarkColor(color, t, t.dim)))
+      .child(separator(t))
+      .child(menuItem(t, this.overlay, "machine-color-none",
+        h_flex().w_full().gap(9).items_center()
+          .child(div().flex_1().child(tr("noColor")))
+          .when(current === null, (el) => el.child(svg(iconPath("check")).size(14).flex_none())),
+        () => save(null)));
   }
 }
 

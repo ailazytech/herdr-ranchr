@@ -56,7 +56,9 @@ export const messages = {
     "unreachable": "無法連線",
     "disconnected": "已中斷連線",
     "connectingState": "連線中",
-    "unknown": "未知"
+    "unknown": "未知",
+    "machineColorTitle": "{name}的顏色",
+    "noColor": "不上色"
   },
   "en": {
     "spaces": "Spaces",
@@ -114,7 +116,9 @@ export const messages = {
     "unreachable": "Unreachable",
     "disconnected": "Disconnected",
     "connectingState": "Connecting",
-    "unknown": "Unknown"
+    "unknown": "Unknown",
+    "machineColorTitle": "Color for {name}",
+    "noColor": "No color"
   }
 };
 

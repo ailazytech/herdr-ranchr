@@ -406,3 +406,190 @@ export function ranked(tree, value, combine) {
 export function isHex(text) {
   return typeof text === "string" && HEX_COLOR.test(text);
 }
+
+// ---- machine colors & busy marks ----
+
+export const MACHINE_PALETTE = ["ansi6", "ansi3", "ansi4", "ansi5", "ansi2", "ansi1"];
+export const MARK_COLORS = {
+  ansi6: "#22a99a",
+  ansi3: "#e3814f",
+  ansi4: "#5b8def",
+  ansi5: "#8b7cf6",
+  ansi2: "#3fae6a",
+  ansi1: "#d9649a",
+};
+
+const BUSY_MARK_ORDER = ["blocked", "done", "working", "idle"];
+const ROLE_RANK = { main: 0, sub: 1 };
+const byRole = (a, b) => (ROLE_RANK[a.role] ?? 2) - (ROLE_RANK[b.role] ?? 2);
+
+export function resolveMarkColor(color, theme, fallback = null) {
+  if (!color) return fallback;
+  if (color.startsWith("#")) return color;
+  return MARK_COLORS[color] ?? theme?.[color] ?? fallback;
+}
+
+// "studio/t9s" -> "studio"; local addresses ("t2j") -> "".
+export function machineOfAddress(address) {
+  if (typeof address !== "string" || !address) return "";
+  const slash = address.indexOf("/");
+  return slash < 0 ? "" : address.slice(0, slash);
+}
+
+function bareAddress(address) {
+  if (typeof address !== "string" || !address) return "";
+  const slash = address.indexOf("/");
+  return slash < 0 ? address : address.slice(slash + 1);
+}
+
+// Assigns default colors to newly seen remote machines in sorted name order
+// without overwriting user choices (including explicit `null` for no color).
+// `""` is this computer and defaults to `null` (use theme colors).
+export function assignMachineColors(saved, machines = [], palette = MACHINE_PALETTE) {
+  const valid = saved && typeof saved === "object" && !Array.isArray(saved);
+  const next = valid ? { ...saved } : {};
+  let changed = !valid;
+  if (!Object.prototype.hasOwnProperty.call(next, "")) {
+    next[""] = null;
+    changed = true;
+  }
+  const remote = [...new Set(machines)].filter((m) => typeof m === "string" && m.length > 0).sort();
+  for (const name of remote) {
+    if (Object.prototype.hasOwnProperty.call(next, name)) continue;
+    const uses = (c) => Object.values(next).filter((v) => v === c).length;
+    next[name] = palette.reduce((best, c) => (uses(c) < uses(best) ? c : best), palette[0]);
+    changed = true;
+  }
+  return { colors: next, changed };
+}
+
+export function setMachineColor(saved, machine, color) {
+  const next = saved && typeof saved === "object" && !Array.isArray(saved) ? { ...saved } : {};
+  next[machine ?? ""] = color ?? null;
+  return next;
+}
+
+function normalizeBusyStatus(status) {
+  if (status === "error" || status === "blocked") return "blocked";
+  if (status === "done" || status === "working" || status === "idle") return status;
+  return "idle";
+}
+
+function agentDisplayName(agent, term, tab) {
+  if (term?.name) return term.name;
+  const tabName = agent.tab_name;
+  if (tabName && (tab ? tab.named : !/^\d+$/.test(tabName))) return tabName;
+  return agent.program?.name || agent.title || bareAddress(agent.address);
+}
+
+function subAgentDisplayName(term) {
+  return term.name || term.template || term.program?.name || term.title || bareAddress(term.address);
+}
+
+// Per-space agent marks for the 執行與待觀看 section: includes pane agents and
+// live sub-agents from `terminals()` across all machines (keeping sub-agent `done`
+// as `done`), ordered blocked -> done -> working -> idle and Lead -> Second -> other.
+export function spaceAgentsBySpace({ spaces = [], agents = [], terminals = [], panes = [], roles = {} } = {}) {
+  const termByAddr = new Map(terminals.map((k) => [k.address, k]));
+  const hasParent = new Set(terminals.filter((k) => k.parent).map((k) => k.address));
+  const tabToSpace = new Map();
+  const tabById = new Map();
+  const tabNamesBySpace = {};
+  const spaceIds = new Set();
+  for (const s of spaces) {
+    spaceIds.add(s.id);
+    const tabs = s.tabs ?? [];
+    tabNamesBySpace[s.id] = tabs.map((tab) => tab.name);
+    for (const tab of tabs) {
+      tabToSpace.set(tab.id, s.id);
+      tabById.set(tab.id, tab);
+    }
+  }
+  const childrenByParent = new Map();
+  for (const k of terminals) {
+    if (!k.parent || k.state !== "live") continue;
+    const list = childrenByParent.get(k.parent);
+    if (list) list.push(k);
+    else childrenByParent.set(k.parent, [k]);
+  }
+  const listed = new Set(agents.map((a) => a.address));
+  const out = {};
+  const rootsBySpace = {};
+  const rootSpaceByAddr = new Map();
+  const addRoot = (space, address) => {
+    if (!space || !address) return;
+    (rootsBySpace[space] ??= new Set()).add(address);
+    if (!rootSpaceByAddr.has(address)) rootSpaceByAddr.set(address, space);
+  };
+  const pushMark = (space, item) => {
+    (out[space] ??= []).push(item);
+  };
+  for (const a of agents) {
+    const tab = tabById.get(a.tab);
+    const role = hasParent.has(a.address) ? null : agentRole(a, roles[a.space], tabNamesBySpace[a.space] ?? []);
+    pushMark(a.space, {
+      address: a.address,
+      machine: machineOfAddress(a.address),
+      name: agentDisplayName(a, termByAddr.get(a.address), tab),
+      status: normalizeBusyStatus(a.status),
+      role,
+    });
+    addRoot(a.space, a.address);
+  }
+  for (const p of panes) {
+    if (!p.terminal) continue;
+    addRoot(tabToSpace.get(p.tab), p.terminal);
+  }
+  for (const k of terminals) {
+    if (k.state !== "live") continue;
+    const rawSpace = k.labels?.["herdr.space"];
+    if (!rawSpace) continue;
+    const machine = machineOfAddress(k.address);
+    const sid = machine ? `${machine}/${rawSpace}` : rawSpace;
+    if (!spaceIds.has(sid)) continue;
+    if (!listed.has(k.address) && k.status) {
+      listed.add(k.address);
+      pushMark(sid, {
+        address: k.address,
+        machine,
+        name: subAgentDisplayName(k),
+        status: normalizeBusyStatus(k.status),
+        role: null,
+      });
+    }
+    addRoot(sid, k.address);
+  }
+  for (const [space, roots] of Object.entries(rootsBySpace)) {
+    const seen = new Set();
+    const walk = (address) => {
+      if (seen.has(address)) return;
+      seen.add(address);
+      for (const k of childrenByParent.get(address) ?? []) {
+        const owner = rootSpaceByAddr.get(k.address);
+        if (owner && owner !== space) continue;
+        if (!listed.has(k.address) && k.status) {
+          listed.add(k.address);
+          pushMark(space, {
+            address: k.address,
+            machine: machineOfAddress(k.address),
+            name: subAgentDisplayName(k),
+            status: normalizeBusyStatus(k.status),
+            role: null,
+          });
+        }
+        walk(k.address);
+      }
+    };
+    for (const address of roots) walk(address);
+  }
+  for (const [space, items] of Object.entries(out)) {
+    out[space] = BUSY_MARK_ORDER.flatMap((status) => items.filter((item) => item.status === status).sort(byRole));
+  }
+  return out;
+}
+
+export function capMarks(items, maxMarks = 4) {
+  const list = items ?? [];
+  const shown = list.slice(0, maxMarks);
+  return { shown, more: Math.max(0, list.length - shown.length) };
+}

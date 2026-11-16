@@ -20,7 +20,9 @@
 // name is followed, while the pointer is on its row, by its first agent's address (shown only; the menu copies it), and a
 // space's right click opens this mod's menu, which lists every agent's address to copy;
 // machine workspace tabs filter the sidebar, remember each machine's last space, and
-// follow the shown space to its machine; the interface supports Chinese and English.
+// follow the shown space to its machine; the interface supports Chinese and English;
+// machine tabs can pick per-machine colors (stored in shared state) shown as a dot on the tab
+// and on every agent and sub-agent mark (with machine · agent tooltips) in 執行與待觀看.
 //
 // Workspace spaces: stable colored avatars, worktrees under their checkout,
 // grouped by machine when more than one is known. After a space's name, the repo
@@ -30,9 +32,12 @@
 import { t as translate, language, initLanguage } from "./i18n.js";
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, agents, machines, panes, run, exec, hc, theme, shared, setShared, watchFolder, window, layout, props, nextCommand } from "herdr";
-import { Folders, overlayFor, openEmoji, openSortMenu, openSpaceMenu, markSpace, setSort, FADE, named, mark } from "./folders.js";
-import { nameOf, PINNED, workspaceKnown, workspaceTarget, workspaceSpace, followWorkspace } from "./tree.js";
+import { spaces, agents, terminals, machines, panes, run, exec, hc, theme, shared, setShared, watchFolder, window, layout, props, nextCommand } from "herdr";
+import { Folders, overlayFor, openEmoji, openSortMenu, openSpaceMenu, openMachineColorMenu, markSpace, setSort, FADE, named, mark, MACHINE_COLORS_KEY } from "./folders.js";
+import {
+  nameOf, PINNED, workspaceKnown, workspaceTarget, workspaceSpace, followWorkspace,
+  MACHINE_PALETTE, MARK_COLORS, resolveMarkColor, machineOfAddress, assignMachineColors,
+} from "./tree.js";
 
 const tr = (key, vars) => translate(key, vars, language(shared));
 
@@ -80,7 +85,7 @@ async function folderDate(cwd, on) {
 
 // What a stored color name looks like on an avatar (the same in every mod
 // that draws space avatars): one strong color per hue, light and dark alike.
-const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
+const MARK = MARK_COLORS;
 
 // A space speaks up only when something in it needs you.
 export function glyph(status) {
@@ -112,6 +117,7 @@ export default class Spaces extends View {
     this.shown = new Set(spaces().map((s) => s.id));
     this.born = {};
     this.machines = [];
+    this.machineColors = {};
     this.reconnecting = JSON.parse(localStorage.getItem("machines.reconnecting") ?? "{}");
     for (const state of Object.values(this.reconnecting)) state.busy = false;
     this.folded = new Set(); // machines folded in the folder tree, read each tick
@@ -197,12 +203,19 @@ export default class Spaces extends View {
         const ids = sp.filter((s) => tab.key === null || (s.machine ?? "") === tab.key).map((s) => s.id);
         const urgent = this.folders.urgent(ids)[0];
         const selected = tab.key === current;
+        const dotColor = tab.key === null ? null : resolveMarkColor(this.machineColors?.[tab.key], t);
         return h_flex().id(`workspace-tab-${i}`).h(24).px(6).gap(4).items_center().rounded(5).flex_none().cursor_pointer()
           .text_color(tab.machine && tab.machine.state !== "connected" ? t.dim : selected ? t.foreground : t.muted)
           .when(selected, (el) => el.bg(t.selected).font_semibold())
           .hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => choose(tab.key, cx)).child(tab.label)
-          .when(Boolean(urgent), (el) => el.child(mark(urgent, t)));
+          .on_click((_e, cx) => choose(tab.key, cx))
+          .when(tab.key !== null, (el) => el.on_mouse_down("right", (_e, cx) => {
+            cx.stop_propagation();
+            openMachineColorMenu(tab.key);
+          }))
+          .when(Boolean(dotColor), (el) => el.child(div().size(6).rounded(3).flex_none().bg(dotColor)))
+          .child(tab.label)
+          .when(Boolean(urgent), (el) => el.child(mark(urgent, t, this.machineColors)));
       }));
   }
 
@@ -424,7 +437,8 @@ export default class Spaces extends View {
   // header per remote machine, in the tree's order.
   grouped(t, collapsed) {
     const rows = this.ordered();
-    const draw = (r) => (collapsed ? this.compact(r, t) : this.row(r, t));
+    // Pinned rows show their marks like 執行與待觀看: every agent, in its machine's color.
+    const draw = (r, pinned = false) => (collapsed ? this.compact(r, t) : this.row(r, t, pinned));
     // Each space with the worktree spaces nested under it.
     const groups = {};
     let last = null;
@@ -448,7 +462,7 @@ export default class Spaces extends View {
     this.folders.dates = Object.fromEntries(rows.map((r) => [r.w.id, r.g?.date || this.stamps[where(r.w, ps)] || 0]));
     const selected = workspace();
     this.folders.workspace = selected;
-    const nodes = this.folders.nodes(workspaceKnown({ spaces: tops, machines: remote }, selected), selected !== null);
+    const nodes = this.folders.nodes(workspaceKnown({ spaces: tops, machines: remote }, selected), selected !== null, ps);
     if (!nodes.length) return { top: [], rest: (selected === null || selected === "") && loading(null) ? [loadingRow(null)] : [] };
     // A machine's header and, unless it's folded, a row to start a space when it has nothing.
     const machineBlock = (node) => {
@@ -490,14 +504,14 @@ export default class Spaces extends View {
       if (folded || !node.empty) return { rows: [shown], hidesChildren: false };
       return { rows: [shown, this.folders.indent(loading(m) ? loadingRow(m) : empty, node.depth + 1, collapsed)], hidesChildren: false };
     };
-    const drawNodes = (list) => {
+    const drawNodes = (list, pinned = false) => {
       const out = [];
       let hiddenBelow = null; // depth of a rebuilt machine whose spaces aren't shown
       for (const node of list) {
         if (hiddenBelow !== null && node.depth > hiddenBelow) continue;
         hiddenBelow = null;
         if (node.kind === "folder") out.push(this.folders.wrap(this.folders.folderRow(node, t, collapsed), node, t, collapsed));
-        else if (node.kind === "space") out.push(this.folders.wrap(v_flex().children(groups[node.key].map(draw)), node, t, collapsed));
+        else if (node.kind === "space") out.push(this.folders.wrap(v_flex().children(groups[node.key].map((r) => draw(r, pinned))), node, t, collapsed));
         else {
           const block = machineBlock(node);
           out.push(...block.rows);
@@ -511,7 +525,7 @@ export default class Spaces extends View {
     const start = nodes.findIndex((n) => n.depth === 0 && n.parent !== PINNED);
     const split = start < 0 ? nodes.length : start;
     const pinCount = nodes.filter((n) => n.parent === PINNED).length;
-    const pinned = drawNodes(nodes.slice(0, split));
+    const pinned = drawNodes(nodes.slice(0, split), true);
     if (pinCount && !collapsed) pinned.unshift(head(tr("pinned"), pinCount));
     // 執行與待觀看: what's running or done anywhere, folded away or not. The narrow sidebar has its corners instead.
     const byId = new Map(spaces().map((s) => [s.id, s]));
@@ -533,7 +547,7 @@ export default class Spaces extends View {
     };
     const color = (shared("space.colors") ?? {})[w.id] ?? "ansi6";
     const fill = color.startsWith("#") ? color : (MARK[color] ?? t[color]);
-    const marks = this.folders.marks([w.id], t);
+    const marks = this.folders.busyMarks(w.id, t, this.machineColors);
     const address = this.folders.addressChip(w.id, t, `busy:${w.id}`);
     return h_flex()
       .id(`busy-${w.id}`)
@@ -581,12 +595,12 @@ export default class Spaces extends View {
       .when(g.behind > 0, (el) => el.child(div().flex_none().text_color(t.ansi1).child(`\u2193${g.behind}`)));
   }
 
-  row({ w, g, tree }, t) {
+  row({ w, g, tree }, t, pinned = false) {
     const on = w.active;
     const colors = shared("space.colors") ?? {};
     const color = colors[w.id] ?? "ansi6";
     const fill = color.startsWith("#") ? color : (MARK[color] ?? t[color]);
-    const marks = this.folders.marks([w.id], t);
+    const marks = pinned ? this.folders.busyMarks(w.id, t, this.machineColors) : this.folders.marks([w.id], t);
     const address = this.folders.addressChip(w.id, t);
     return v_flex()
       .relative()
@@ -647,7 +661,6 @@ export default class Spaces extends View {
     if (this.overlay) return this.overlay.render();
     const t = theme();
     const collapsed = narrow();
-    const palette = ["ansi6", "ansi3", "ansi4", "ansi5", "ansi2", "ansi1"];
     const sp = spaces();
     const ids = new Set(sp.map(p => p.id));
     const kept = Object.fromEntries(Object.entries(shared("space.colors") ?? {}).filter(([id]) => ids.has(id)));
@@ -655,10 +668,19 @@ export default class Spaces extends View {
     for (const p of sp) {
       if (kept[p.id] || p.name === "~") continue;
       const uses = c => Object.values(kept).filter(v => v === c).length;
-      kept[p.id] = palette.reduce((best, c) => uses(c) < uses(best) ? c : best);
+      kept[p.id] = MACHINE_PALETTE.reduce((best, c) => uses(c) < uses(best) ? c : best);
       changed = true;
     }
     if (changed) setShared("space.colors", kept);
+    const remoteMachines = [
+      ...this.machines.map((m) => m.name),
+      ...sp.map((s) => s.machine),
+      ...terminals().map((k) => machineOfAddress(k.address)),
+    ].filter(Boolean);
+    const { colors: machineColors, changed: colorsChanged } = assignMachineColors(shared(MACHINE_COLORS_KEY), remoteMachines);
+    if (colorsChanged) setShared(MACHINE_COLORS_KEY, machineColors);
+    this.machineColors = machineColors;
+    this.folders.machineColors = machineColors;
     const { top, rest } = this.grouped(t, collapsed);
     return v_flex().id("spaces").size_full().min_h(0).bg(t.chrome).text_size(13)
       // Here, not on the tree: a drag may go from the tree up into Pinned.
